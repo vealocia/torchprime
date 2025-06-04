@@ -68,17 +68,6 @@ class FakeMesh:
 def dummy_config():
   return OmegaConf.create(
     {
-      "global_batch_size": 4,
-      "max_steps": 2,
-      "run_name": None,
-      "output_dir": "/tmp/test_output",
-      "logging_steps": 1,
-      "profile_step": -1,
-      "profile_dir": "/tmp/profile",
-      "profile_duration": 5,
-      "optimizer": {"type": "adafactor", "learning_rate": 1e-3},
-      "lr_scheduler": {"type": "constant", "warmup_steps": 0},
-      "block_size": 4,
       "model": {
         "remat": {
           "activation_checkpoint_layers": [],
@@ -88,6 +77,20 @@ def dummy_config():
         },
         "sharding": {"type": "spmd"},
       },
+      "data": {"name": "dummy_dataset", "block_size": 4},
+      "task": {
+        "name": "dummy_task",
+        "global_batch_size": 4,
+        "max_steps": 2,
+        "optimizer": {"type": "adafactor", "learning_rate": 1e-3},
+        "lr_scheduler": {"type": "constant", "warmup_steps": 0},
+      },
+      "run_name": None,
+      "output_dir": "/tmp/test_output",
+      "logging_steps": 1,
+      "profile_step": -1,
+      "profile_dir": "/tmp/profile",
+      "profile_duration": 5,
       "ici_mesh": {"data": 1, "fsdp": 1, "tensor": 1},
       "dcn_mesh": {},
     }
@@ -145,7 +148,7 @@ def test_trainer_train_loop(monkeypatch, dummy_config):
   monkeypatch.setattr(Trainer, "train_step", counting_train_step)
 
   trainer.train_loop(metrics_logger=MetricsLogger())
-  assert call_counter["steps"] == dummy_config.max_steps
+  assert call_counter["steps"] == dummy_config.task.max_steps
 
 
 def test_trainer_train_step(monkeypatch, dummy_config):

@@ -1,0 +1,12 @@
+# this is for basic training loop, i.e., forward/backward pass without any special task logic.
+name: train 
+global_batch_size: 4
+max_steps: 15
+
+optimizer:
+  learning_rate: 5.e-5
+  type: adafactor
+
+lr_scheduler:
+  type: linear
+  warmup_steps: 0

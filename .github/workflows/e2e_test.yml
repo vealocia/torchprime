@@ -74,11 +74,12 @@ jobs:
             --name $name \
             torchprime/torch_xla_models/train.py \
             model=llama-3-8b \
-            global_batch_size=8 \
+            dataset=wikitext \
+            task=train \
+            task.global_batch_size=8 \
+            task.max_steps=15 \
             ici_mesh.fsdp=4 \
-            dataset_config_name=wikitext-2-raw-v1 \
-            profile_step=3 \
-            max_steps=15
+            profile_step=3 
 
       - name: Run Llama 3.1 8B (Splash Attention)
         id: run-llama-3_1-8b-SplashAttention
@@ -94,11 +95,12 @@ jobs:
             torchprime/torch_xla_models/train.py \
             model=llama-3.1-8b \
             model.attention_kernel=splash_attention \
-            global_batch_size=8 \
+            dataset=wikitext \
+            task=train \
+            task.global_batch_size=8 \
+            task.max_steps=15 \
             ici_mesh.fsdp=4 \
-            dataset_config_name=wikitext-2-raw-v1 \
-            profile_step=3 \
-            max_steps=15
+            profile_step=3 
 
       - name: Run Llama 3.1 8B (Scan + Offload)
         id: run-llama-3_1-8b-scan-offload
@@ -114,11 +116,12 @@ jobs:
             torchprime/torch_xla_models/train.py \
             model=llama-3.1-8b \
             model/remat=llama-scan-offload \
-            global_batch_size=8 \
+            dataset=wikitext \
+            task=train \
+            task.global_batch_size=8 \
+            task.max_steps=15 \
             ici_mesh.fsdp=4 \
-            dataset_config_name=wikitext-2-raw-v1 \
-            profile_step=3 \
-            max_steps=15
+            profile_step=3 
 
       - name: Run Llama 3.0 8B (2D sharding)
         id: run-llama-3-8b-2d
@@ -134,12 +137,13 @@ jobs:
             torchprime/torch_xla_models/train.py \
             model=llama-3-8b \
             model/sharding=llama-fsdp-tp \
-            global_batch_size=8 \
+            dataset=wikitext \
+            task=train \
+            task.global_batch_size=8 \
+            task.max_steps=15 \
             ici_mesh.fsdp=2 \
             ici_mesh.tensor=2 \
-            dataset_config_name=wikitext-2-raw-v1 \
-            profile_step=3 \
-            max_steps=15
+            profile_step=3 
 
       - name: Run Mixtral 8x7B
         id: run-mixtral-8x7b
@@ -155,11 +159,12 @@ jobs:
             torchprime/torch_xla_models/train.py \
             model=mixtral-8x7b \
             model.num_hidden_layers=16 \
-            global_batch_size=8 \
+            dataset=wikitext \
+            task=train \
+            task.global_batch_size=8 \
+            task.max_steps=15 \
             ici_mesh.fsdp=4 \
-            dataset_config_name=wikitext-2-raw-v1 \
-            profile_step=3 \
-            max_steps=15
+            profile_step=3 
 
       - name: Run Llama 3.0 8B (2 slice)
         id: run-llama-3-8b-2-slice
@@ -176,12 +181,13 @@ jobs:
             torchprime/torch_xla_models/train.py \
             model=llama-3-8b \
             model/sharding=llama-fsdp \
-            global_batch_size=16 \
+            dataset=wikitext \
+            task=train \
+            task.global_batch_size=16 \
+            task.max_steps=15 \
             dcn_mesh.fsdp=2 \
             ici_mesh.fsdp=4 \
-            dataset_config_name=wikitext-2-raw-v1 \
-            profile_step=3 \
-            max_steps=15
+            profile_step=3 
 
   # Load reference step times
   load-benchmarks:

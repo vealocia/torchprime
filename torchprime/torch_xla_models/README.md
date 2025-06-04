@@ -20,7 +20,7 @@ These models use the [torch_xla][1] framework.
    python3 torchprime/torch_xla_models/train.py
    ```
 
-    For v5e add ```block_size=1024``` parameter to prevent OOM.
+    For v5e add ```dataset.block_size=1024``` parameter to prevent OOM.
 
 ## Running on a XPK cluster
 
@@ -47,8 +47,10 @@ export LIBTPU_INIT_ARGS='--xla_tpu_scoped_vmem_limit_kib=98304 --xla_tpu_use_min
 
 tp run torchprime/torch_xla_models/train.py \
     model=llama-3-8b \
-    dataset_config_name=wikitext-103-raw-v1 \
-    global_batch_size=1024 \
+    task=train \
+    task.global_batch_size=1024 \
+    dataset=wikitext \
+    dataset.config_name=wikitext-103-raw-v1 \
     profile_step=6 \
     profile_duration=20000 \
     ici_mesh.fsdp=256 \
@@ -65,8 +67,10 @@ export LIBTPU_INIT_ARGS='--xla_tpu_scoped_vmem_limit_kib=98304 --xla_tpu_use_min
 
 tp run torchprime/torch_xla_models/train.py \
     model=llama-3.1-8b \
-    dataset_config_name=wikitext-103-raw-v1 \
-    global_batch_size=1024 \
+    task=train \
+    task.global_batch_size=1024 \
+    dataset=wikitext \
+    dataset.config_name=wikitext-103-raw-v1 \
     profile_step=6 \
     profile_duration=20000 \
     ici_mesh.fsdp=256 \
@@ -83,8 +87,10 @@ export LIBTPU_INIT_ARGS='--xla_tpu_scoped_vmem_limit_kib=98304 --xla_tpu_use_min
 
 tp run torchprime/torch_xla_models/train.py \
     model=llama-3.1-70b \
-    dataset_config_name=wikitext-103-raw-v1 \
-    global_batch_size=512 \
+    task=train \
+    task.global_batch_size=512 \
+    dataset=wikitext \
+    dataset.config_name=wikitext-103-raw-v1 \
     profile_step=5 \
     profile_duration=250000  \
     ici_mesh.fsdp=256 \
@@ -103,14 +109,16 @@ export LIBTPU_INIT_ARGS='--xla_tpu_enable_flash_attention=false --xla_tpu_enable
 
 tp run torchprime/torch_xla_models/train.py \
     model=llama-3.1-405b \
-    global_batch_size=256 \
-    block_size=8192 \
+    task=train \
+    task.global_batch_size=256 \
+    task.max_steps=50 \
+    dataset=wikitext \
+    dataset.config_name=wikitext-103-raw-v1 \
+    dataset.block_size=8192 \
     ici_mesh.fsdp=64 \
     ici_mesh.tensor=4 \
     profile_step=5 \
     profile_duration=240000 \
-    dataset_config_name=wikitext-103-raw-v1 \
-    max_steps=50 \
     logging_steps=10
 ```
 
@@ -124,15 +132,17 @@ export LIBTPU_INIT_ARGS='--xla_tpu_enable_flash_attention=false --xla_tpu_enable
 
 tp run torchprime/torch_xla_models/train.py \
     model=llama-3.1-405b \
-    global_batch_size=512 \
-    block_size=8192 \
+    task=train \
+    task.global_batch_size=512 \
+    task.max_steps=50 \
+    dataset=wikitext \
+    dataset.config_name=wikitext-103-raw-v1 \
+    dataset.block_size=8192 \
     dcn_mesh.fsdp=2 \
     ici_mesh.fsdp=64 \
     ici_mesh.tensor=4 \
     profile_step=15 \
     profile_duration=240000 \
-    dataset_config_name=wikitext-103-raw-v1 \
-    max_steps=50 \
     logging_steps=10
 ```
 
@@ -145,9 +155,11 @@ Recipe for global batch size 512, sequence length 8192.
 ```sh
 tp run torchprime/torch_xla_models/train.py \
     model=mixtral-8x7b \
-    global_batch_size=512 \
+    task=train \
+    task.global_batch_size=512 \
+    dataset=wikitext \
+    dataset.config_name=wikitext-103-raw-v1 \
     ici_mesh.fsdp=256 \
-    dataset_config_name=wikitext-103-raw-v1 \
     profile_step=5
 ```
 
