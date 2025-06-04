@@ -192,6 +192,11 @@ Besides forwarding your command line arguments, `tp run` will add:
 - `output_dir=[...]` path to a directory where the workload may store output
   artifacts such as metrics and checkpoints
 
+#### Troubleshooting distributed training setup
+
+See the guide to [troubleshoot distributed training][troubleshoot_distributed]
+for troubleshooting tools and an FAQ. 
+
 ## Supported Models
 
 torchprime has implementations for the following models:
@@ -262,3 +267,4 @@ documentation](https://github.com/pytorch/xla).
 [tpu-slice]: https://cloud.google.com/tpu/docs/system-architecture-tpu-vm#slices
 [accelerator-type]: https://cloud.google.com/tpu/docs/multislice-introduction#concepts
 [multi-slice]: https://cloud.google.com/tpu/docs/multislice-introduction
+[troubleshoot-distributed]: https://github.com/AI-Hypercomputer/torchprime/docs/troubleshoot-distributed.md
