@@ -1,7 +1,5 @@
-import importlib
 import logging
 import sys
-from contextlib import contextmanager
 
 import datasets
 import hydra
@@ -19,6 +17,10 @@ from transformers import (
 
 from torchprime.data.dataset import make_huggingface_dataset
 from torchprime.metrics.metrics import MetricsLogger
+from torchprime.torch_xla_models.model.model_utils import (
+  initialize_model_class,
+  set_default_dtype,
+)
 from torchprime.torch_xla_models.trainer.base_trainer import Trainer
 from torchprime.utils.retry import retry
 
@@ -27,37 +29,6 @@ logger = logging.getLogger(__name__)
 
 xr.use_spmd()
 assert xr.is_spmd() is True
-
-
-def initialize_model_class(model_config):
-  """Import and initialize model_class specified by the config."""
-  full_model_class_string = model_config.model_class
-  module_name, model_class_name = full_model_class_string.rsplit(".", 1)
-  try:
-    module = importlib.import_module(module_name)
-  except ModuleNotFoundError as e:
-    print(f"Error importing relative module: {e}")
-    sys.exit(1)
-  if hasattr(module, model_class_name):
-    model_class = getattr(module, model_class_name)
-  else:
-    print(f"Error: Function '{model_class_name}' not found in module '{module_name}'")
-    sys.exit(1)
-  model = model_class(model_config)
-  return model
-
-
-@contextmanager
-def set_default_dtype(dtype):
-  # Get the current default dtype
-  previous_dtype = torch.get_default_dtype()
-  # Set the new default dtype
-  torch.set_default_dtype(dtype)
-  try:
-    yield
-  finally:
-    # Revert to the original default dtype
-    torch.set_default_dtype(previous_dtype)
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="default")
