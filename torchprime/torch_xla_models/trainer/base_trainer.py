@@ -61,6 +61,10 @@ def get_model_dtype(module: nn.Module) -> torch.dtype:
   return dtypes.pop()
 
 
+_ADAFACTOR = "adafactor"
+_ADAMW = "adamw"
+
+
 class Trainer:
   """Trainer class for TPU-accelerated model training using PyTorch/XLA.
 
@@ -107,20 +111,7 @@ class Trainer:
     model = add_optimization_barriers(model, config)
     self.model = model
 
-    assert self.config.task.optimizer.type == "adafactor", (
-      "Currently only Adafactor optimizer is supported"
-    )
-
-    # Set up optimizers
-    self.optimizer = Adafactor(
-      params=model.parameters(),
-      lr=self.config.task.optimizer.learning_rate,
-      relative_step=False,
-      scale_parameter=False,
-    )
-
-    # TODO: this OOMs the TPU.
-    # self._prime_optimizer()
+    self.optimizer = type(self)._create_optimizer(config, model.parameters())
 
     self.lr_scheduler = get_scheduler(
       name=self.config.task.lr_scheduler.type,
@@ -131,6 +122,37 @@ class Trainer:
 
     # Execute all initialization work queued so far before starting training.
     torch_xla.sync()
+
+  @staticmethod
+  def _create_optimizer(config, model_parameters) -> torch.optim.Optimizer:
+    """Helper for optimizer initialization."""
+    if config.task.optimizer.type not in (_ADAFACTOR, _ADAMW):
+      raise ValueError(
+        f"Supported optimizers are {[_ADAFACTOR, _ADAMW]}, "
+        f"but got {config.task.optimizer.type}"
+      )
+
+    if config.task.optimizer.type == _ADAMW:
+      optimizer = torch.optim.AdamW(
+        params=model_parameters,
+        lr=config.task.optimizer.learning_rate,
+        weight_decay=config.task.optimizer.weight_decay,
+      )
+    elif config.task.optimizer.type == _ADAFACTOR:
+      # Adafactor optimizer does not support weight decay.
+      if "weight_decay" in config.task.optimizer:
+        raise ValueError("Adafactor does not support weight decay.")
+
+      optimizer = Adafactor(
+        params=model_parameters,
+        lr=config.task.optimizer.learning_rate,
+        relative_step=False,
+        scale_parameter=False,
+      )
+    else:
+      raise AssertionError("Impossible code branch reached.")
+
+    return optimizer
 
   def __del__(self):
     # Close TensorBoard writer on destruction.
@@ -144,14 +166,6 @@ class Trainer:
     tensorboard_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"TensorBoard logging to: {tensorboard_dir}")
     self.summary_writer = SummaryWriter(log_dir=str(tensorboard_dir))
-
-  def _prime_optimizer(self) -> None:
-    for group in self.optimizer.param_groups:
-      for p in group["params"]:
-        p.grad = torch.zeros_like(p)
-        p.grad.requires_grad_(False)
-    self.optimizer.step()
-    torch_xla.sync()
 
   def _get_train_dataloader(self) -> pl.MpDeviceLoader:
     if self.train_dataset is None:

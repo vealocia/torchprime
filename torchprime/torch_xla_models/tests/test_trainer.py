@@ -14,8 +14,10 @@ import numpy as np
 import pytest
 import torch
 import torch.nn as nn
+import torch_xla
 import torch_xla.core.xla_model as xm
 import torch_xla.debug.profiler as xp
+import transformers
 from omegaconf import OmegaConf
 from torch.utils.data import Dataset
 
@@ -99,6 +101,7 @@ def dummy_config():
 
 def test_trainer_initialization(monkeypatch, dummy_config):
   """Test Trainer initialization and mesh logic."""
+  # Arrange
   from torchprime.torch_xla_models.model_rewriting import sharding_initialization
 
   monkeypatch.setattr(
@@ -110,13 +113,44 @@ def test_trainer_initialization(monkeypatch, dummy_config):
     lambda model, *args, **kwargs: model,
   )
 
-  device = xm.xla_device()
-  model = DummyModel().to(device)
+  device = torch_xla.device()
   dataset = DummyDataset()
+
+  # Act
+  model = DummyModel().to(device)
   trainer = Trainer(model, dummy_config, dataset)
 
+  # Assert
   assert isinstance(trainer.model, DummyModel)
   assert trainer.global_batch_size == 4
+
+
+def test_trainer_optimizer(dummy_config):
+  # Arrange
+  device = torch_xla.device()
+  model = DummyModel().to(device)
+
+  # Act #1
+  dummy_config.task.optimizer.type = "adafactor"
+  opt = Trainer._create_optimizer(dummy_config, model.parameters())
+
+  # Assert #1
+  assert isinstance(opt, transformers.optimization.Adafactor)
+
+  # Act #2
+  dummy_config.task.optimizer.type = "adamw"
+  dummy_config.task.optimizer.weight_decay = 1e-3
+  opt = Trainer._create_optimizer(dummy_config, model.parameters())
+
+  # Assert #2
+  assert isinstance(opt, torch.optim.AdamW)
+  assert opt.defaults["weight_decay"] == 1e-3
+
+  # Assert #3
+  with pytest.raises(ValueError, match=r"Supported optimizers are *"):
+    # Act #3
+    dummy_config.task.optimizer.type = "sgd"
+    opt = Trainer._create_optimizer(dummy_config, model.parameters())
 
 
 def test_trainer_train_loop(monkeypatch, dummy_config):
@@ -332,7 +366,7 @@ def test_profiler_trace(monkeypatch, dummy_config):
   dummy_config.profile_end_step = 1
   dummy_config.task.max_steps = 6
 
-  device = xm.xla_device()
+  device = torch_xla.device()
   model = DummyModel().to(device)
   dataset = DummyDataset()
   trainer = Trainer(model, dummy_config, dataset)
