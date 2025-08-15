@@ -17,6 +17,7 @@ from pathlib import Path
 
 import toml
 from dataclasses_json import dataclass_json
+from huggingface_hub.errors import RepositoryNotFoundError
 from pathspec import PathSpec
 from pathspec.patterns import GitWildMatchPattern  # type: ignore
 from rich.text import Text
@@ -24,6 +25,7 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 import torchprime.launcher.doctor
+from torchprime.launcher import save_hf_tokenizer_and_model
 from torchprime.launcher.buildpush import buildpush
 from torchprime.launcher.util import run_docker
 
@@ -49,6 +51,27 @@ class Config:
   bq_dataset: str | None = None
   bq_table: str | None = None
   docker_project: str | None = None
+
+
+def save_hf_model_files_to_gcs(
+  repo_id: str, gcs_path: str, file_type: str, temp_dir: str | None
+):
+  """Downloads model and tokenizer files from Hugging Face Hub and saves them to Google Cloud Storage."""
+  print(f"Preparing to save '{file_type}' files from '{repo_id}' to '{gcs_path}'...")
+  try:
+    save_hf_tokenizer_and_model.save_hf_model_files_to_gcs(
+      repo_id, gcs_path, file_type=file_type, temp_dir=temp_dir
+    )
+    print(f"  -> Successfully saved files to {gcs_path}")
+  except RepositoryNotFoundError:
+    print(f"\n❌ Error: Repository '{repo_id}' not found.")
+    print("Please check the following:")
+    print(f"1. The repository ID '{repo_id}' is spelled correctly.")
+    print(
+      "2. If it's a gated repository, ensure you are authenticated by running 'huggingface-cli login' or exporting your HF_TOKEN."
+    )
+  except Exception as e:
+    print(f"\n❌ An unexpected error occurred for repository '{repo_id}': {e}")
 
 
 def use(
@@ -622,6 +645,39 @@ def main():
   # `doctor` command
   parser_doctor = subparsers.add_parser("doctor", help=doctor.__doc__)
   parser_doctor.set_defaults(func=doctor)
+
+  # `save-hf-model-files-to-gcs` command
+  parser_save_hf = subparsers.add_parser(
+    "save-hf-model-files-to-gcs",
+    help=save_hf_model_files_to_gcs.__doc__,
+    formatter_class=argparse.RawTextHelpFormatter,
+  )
+  parser_save_hf.add_argument(
+    "--repo-id",
+    type=str,
+    required=True,
+    help="Hugging Face model or tokenizer repo ID (e.g., 'meta-llama/Llama-3-8B-hf').",
+  )
+  parser_save_hf.add_argument(
+    "--gcs-path",
+    type=str,
+    required=True,
+    help="Target GCS path for the model files (e.g., 'gs://bucket/models/Llama-3-8B-hf').",
+  )
+  parser_save_hf.add_argument(
+    "--file-type",
+    type=str,
+    choices=["tokenizer", "model", "all"],
+    default="all",
+    help="Type of files to save. 'tokenizer' for tokenizer files, 'model' for model weights and configs, 'all' for both.",
+  )
+  parser_save_hf.add_argument(
+    "--temp-dir",
+    type=str,
+    default=None,
+    help="Path to a temporary directory with sufficient space. Defaults to system temp.",
+  )
+  parser_save_hf.set_defaults(func=save_hf_model_files_to_gcs)
 
   # Parse arguments
   known_args, remaining_args = parser.parse_known_args()

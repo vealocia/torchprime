@@ -69,7 +69,6 @@ jobs:
       - name: Run Llama 3.0 8B
         id: run-llama-3-8b
         env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
           XLA_IR_DEBUG: 1
           XLA_HLO_DEBUG: 1
         run: |
@@ -79,6 +78,7 @@ jobs:
             --name $name \
             torchprime/torch_xla_models/train.py \
             model=llama-3-8b \
+            model.tokenizer_name=gs://torchprime/e2e-test/hf-model-files/meta-llama-3-8b \
             dataset=wikitext \
             task=train \
             task.global_batch_size=8 \
@@ -113,7 +113,6 @@ jobs:
       - name: Run Llama 3.1 8B (Splash Attention)
         id: run-llama-3_1-8b-SplashAttention
         env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
           XLA_IR_DEBUG: 1
           XLA_HLO_DEBUG: 1
         run: |
@@ -123,6 +122,7 @@ jobs:
             --name $name \
             torchprime/torch_xla_models/train.py \
             model=llama-3.1-8b \
+            model.tokenizer_name=gs://torchprime/e2e-test/hf-model-files/meta-llama-3.1-405b \
             model.attention_kernel=splash_attention \
             dataset=wikitext \
             task=train \
@@ -135,7 +135,6 @@ jobs:
       - name: Run Llama 3.1 8B (Scan + Offload)
         id: run-llama-3_1-8b-scan-offload
         env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
           XLA_IR_DEBUG: 1
           XLA_HLO_DEBUG: 1
         run: |
@@ -145,6 +144,7 @@ jobs:
             --name $name \
             torchprime/torch_xla_models/train.py \
             model=llama-3.1-8b \
+            model.tokenizer_name=gs://torchprime/e2e-test/hf-model-files/meta-llama-3.1-405b \
             model/remat=llama-scan-offload \
             dataset=wikitext \
             task=train \
@@ -157,7 +157,6 @@ jobs:
       - name: Run Llama 3.0 8B (2D sharding)
         id: run-llama-3-8b-2d
         env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
           XLA_IR_DEBUG: 1
           XLA_HLO_DEBUG: 1
         run: |
@@ -167,6 +166,7 @@ jobs:
             --name $name \
             torchprime/torch_xla_models/train.py \
             model=llama-3-8b \
+            model.tokenizer_name=gs://torchprime/e2e-test/hf-model-files/meta-llama-3-8b \
             model/sharding=llama-fsdp-tp \
             dataset=wikitext \
             task=train \
@@ -180,7 +180,6 @@ jobs:
       - name: Run Llama 3.0 8B (fsdp + cp)
         id: run-llama-3-8b-fsdp-cp
         env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
           XLA_IR_DEBUG: 1
           XLA_HLO_DEBUG: 1
         run: |
@@ -190,6 +189,7 @@ jobs:
             --name $name \
             torchprime/torch_xla_models/train.py \
             model=llama-3-8b-cp \
+            model.tokenizer_name=gs://torchprime/e2e-test/hf-model-files/meta-llama-3-8b \
             model/sharding=llama-fsdp-tp-cp \
             dataset=wikitext \
             task=train \
@@ -202,7 +202,6 @@ jobs:
       - name: Run Mixtral 8x7B
         id: run-mixtral-8x7b
         env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
           XLA_IR_DEBUG: 1
           XLA_HLO_DEBUG: 1
         run: |
@@ -212,6 +211,7 @@ jobs:
             --name $name \
             torchprime/torch_xla_models/train.py \
             model=mixtral-8x7b \
+            model.tokenizer_name=gs://torchprime/e2e-test/hf-model-files/mixtral-8x7b-v0.1/ \
             model.num_hidden_layers=16 \
             dataset=wikitext \
             task=train \
@@ -224,7 +224,6 @@ jobs:
       - name: Run Llama 3.0 8B (2 slice)
         id: run-llama-3-8b-2-slice
         env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
           XLA_IR_DEBUG: 1
           XLA_HLO_DEBUG: 1
         run: |
@@ -234,6 +233,7 @@ jobs:
             --name $name \
             --num-slices 2 \
             torchprime/torch_xla_models/train.py \
+            model.tokenizer_name=gs://torchprime/e2e-test/hf-model-files/meta-llama-3-8b \
             model=llama-3-8b \
             model/sharding=llama-fsdp \
             dataset=wikitext \
@@ -248,7 +248,6 @@ jobs:
       - name: Run Llama 3.0 8B SFT
         id: run-llama-3-8b-sft
         env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
           XLA_IR_DEBUG: 1
           XLA_HLO_DEBUG: 1
         run: |
@@ -258,6 +257,8 @@ jobs:
             --name $name \
             torchprime/torch_xla_models/train.py \
             --config-name llama-3-8b-sft-w-gsm8k \
+            model.pretrained_model=gs://torchprime/e2e-test/hf-model-files/meta-llama-3-8b \
+            model.tokenizer_name=gs://torchprime/e2e-test/hf-model-files/meta-llama-3-8b \
             ici_mesh.fsdp=4 \
             task.max_steps=50 \
             task.convert_to_safetensors=False \ 
@@ -266,7 +267,6 @@ jobs:
       - name: Run Llama 3.0 8B (ddp + fsdp)
         id: run-llama-3-8b-ddp-fsdp
         env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
           XLA_IR_DEBUG: 1
           XLA_HLO_DEBUG: 1
         run: |
@@ -276,6 +276,7 @@ jobs:
             --name $name \
             --num-slices 2 \
             torchprime/torch_xla_models/train.py \
+            model.tokenizer_name=gs://torchprime/e2e-test/hf-model-files/meta-llama-3-8b \
             model=llama-3-8b \
             model/sharding=llama-fsdp \
             dataset=wikitext \
@@ -290,7 +291,6 @@ jobs:
       - name: Run Deepseek v3 Shallow
         id: run-ds-v3-shallow
         env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
           XLA_IR_DEBUG: 1
           XLA_HLO_DEBUG: 1
         run: |

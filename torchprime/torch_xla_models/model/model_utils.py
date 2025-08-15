@@ -484,3 +484,55 @@ def save_hf_tokenizer(model_path_or_repo: str, save_dir: Path) -> None:
   save_dir = Path(save_dir)
   save_dir.mkdir(parents=True, exist_ok=True)
   tokenizer.save_pretrained(save_dir)
+
+
+@contextmanager
+def local_path_from_gcs(path_or_repo: str, temp_dir: str | None = None):
+  """A context manager to download GCS content to a local temporary directory.
+
+  If the input `path_or_repo` starts with 'gs://', this function will download
+  the contents of the GCS directory to a temporary local directory using the
+  `gsutil` command-line tool. The local directory will be automatically cleaned
+  up when the context is exited.
+
+  If the input is not a GCS path, it is assumed to be a local path or a
+  Hugging Face repository ID, and is yielded unmodified with no cleanup.
+
+  Args:
+      path_or_repo: The path to resolve. Can be a GCS URI (e.g.,
+        'gs://bucket/data') or a local file path.
+      temp_dir: An optional path to a directory for creating the temporary
+        download location. If None, the system's default temporary directory
+        is used.
+
+  Yields:
+      A string containing the path to the local directory.
+  """
+  if not path_or_repo.startswith("gs://"):
+    yield path_or_repo
+    return
+
+  if not shutil.which("gsutil"):
+    raise RuntimeError(
+      "gsutil command not found, but is required for downloading from GCS. "
+      "Please install the Google Cloud SDK."
+    )
+
+  local_dir = tempfile.mkdtemp(dir=temp_dir)
+  try:
+    gcs_path = path_or_repo.rstrip("/") + "/*"
+    command = ["gsutil", "-m", "-q", "cp", "-r", gcs_path, local_dir]
+    subprocess.run(command, check=True, capture_output=True, text=True)
+    logger.info(
+      "Successfully downloaded files from %s to temporary directory %s.",
+      path_or_repo,
+      local_dir,
+    )
+
+    yield local_dir
+  except subprocess.CalledProcessError as e:
+    logger.error("gsutil download failed for %s. Stderr:\n%s", path_or_repo, e.stderr)
+    raise
+  finally:
+    logger.info(f"Cleaning up temporary directory: {local_dir}")
+    shutil.rmtree(local_dir, ignore_errors=True)
