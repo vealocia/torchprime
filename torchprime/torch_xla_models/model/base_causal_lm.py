@@ -113,17 +113,20 @@ class BaseCausalLM(nn.Module):
     Args:
         model_path_or_repo: Path to the local directory or Hugging Face Hub repository ID.
     """
-    if os.path.isdir(model_path_or_repo):
-      model_dir = model_path_or_repo
-    else:
-      model_dir = huggingface_hub.snapshot_download(
-        repo_id=model_path_or_repo,
-        allow_patterns=["*.safetensors*"] + model_utils.HF_MODEL_CONFIG_FILES,
-      )
+    with model_utils.local_path_from_gcs(
+      model_path_or_repo
+    ) as local_model_path_or_repo:
+      if os.path.isdir(local_model_path_or_repo):
+        model_dir = local_model_path_or_repo
+      else:
+        model_dir = huggingface_hub.snapshot_download(
+          repo_id=local_model_path_or_repo,
+          allow_patterns=["*.safetensors*"] + model_utils.HF_MODEL_CONFIG_FILES,
+        )
 
-    # Load weights
-    state_dict = model_utils.load_safetensors_to_state_dict(model_dir)
-    self.load_state_dict(state_dict)
+      # Load weights
+      state_dict = model_utils.load_safetensors_to_state_dict(model_dir)
+      self.load_state_dict(state_dict)
 
   def _maybe_save_checkpoint(self, config: DictConfig) -> None:
     """Save a sharded checkpoint and optionally convert it to safetensors format.
@@ -153,8 +156,13 @@ class BaseCausalLM(nn.Module):
     # Step 3: Save the HF config files and tokenizer
     if xr.process_index() == 0:
       logger.info("Saving Hugging Face configs and tokenizer to %s", save_dir)
-      model_utils.copy_hf_config_files(config.model.pretrained_model, save_dir)
-      model_utils.save_hf_tokenizer(config.model.pretrained_model, save_dir)
+      # Copy to local if in GCS
+      with (
+        model_utils.local_path_from_gcs(config.model.tokenizer_name) as tokenizer_path,
+        model_utils.local_path_from_gcs(config.model.pretrained_model) as model_path,
+      ):
+        model_utils.copy_hf_config_files(tokenizer_path, save_dir)
+        model_utils.save_hf_tokenizer(model_path, save_dir)
 
     # Step 4: Initialize torch.distributed process group
     if not dist.is_initialized():

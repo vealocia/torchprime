@@ -6,12 +6,12 @@ computes statistical bounds for each benchmark's step times, and exports
 the results to a YAML file for use in GitHub Actions.
 """
 
+import argparse
 import json
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import click
 import numpy as np
 import scipy
 import yaml
@@ -26,9 +26,11 @@ def match_llama3_8b(row):
   config = json.loads(row.configs_framework)
   return (
     row.run_id.startswith("llama-3-8b-")
+    and not row.run_id.startswith("llama-3-8b-sft")
     and config["dcn_mesh"]["data"] == 1
     and config["dcn_mesh"]["fsdp"] == 1
     and config["ici_mesh"]["tensor"] == 1
+    and ("context" not in config["ici_mesh"] or config["ici_mesh"]["context"] == 1)
     and (
       "pure_modules" not in config["model"] or len(config["model"]["pure_modules"]) == 0
     )
@@ -114,8 +116,17 @@ def match_llama_3_8b_fsdp_cp(row):
   config = json.loads(row.configs_framework)
   return (
     row.run_id.startswith("llama-3-8b-fsdp-cp")
-    and config["ici_mesh"]["context"] == 2
+    and ("context" in config["ici_mesh"] and config["ici_mesh"]["context"] == 2)
     and config["ici_mesh"]["fsdp"] == 2
+    and config["ici_mesh"]["tensor"] == 1
+  )
+
+
+def match_ds_v3_debug(row):
+  config = json.loads(row.configs_framework)
+  return (
+    row.run_id.startswith("ds-v3-shallow")
+    and config["ici_mesh"]["fsdp"] == 4
     and config["ici_mesh"]["tensor"] == 1
   )
 
@@ -131,6 +142,7 @@ BENCHMARKS = {
   "Llama 3.0 8B SFT": match_llama_3_8b_sft,
   "Llama 3.0 8B (ddp + fsdp)": match_llama_3_8b_ddp_fsdp,
   "Llama 3.0 8B (fsdp + cp)": match_llama_3_8b_fsdp_cp,
+  "Deepseek v3 Debug Model": match_ds_v3_debug,
 }
 
 STEP_ID_MAPPING = {
@@ -144,10 +156,9 @@ STEP_ID_MAPPING = {
   "Llama 3.0 8B SFT": "llama-3-8b-sft",
   "Llama 3.0 8B (ddp + fsdp)": "llama-3-8b-ddp-fsdp",
   "Llama 3.0 8B (fsdp + cp)": "llama-3-8b-fsdp-cp",
+  "Deepseek v3 Debug Model": "ds-v3-shallow",
 }
 """Mapping from the benchmark name to the ID of the E2E test step used in GitHub Actions."""
-
-CONFIDENCE_LEVEL = 0.999  # 99.9% confidence level
 
 
 def parse_days_ago(days_str: str):
@@ -220,7 +231,7 @@ def calculate_confidence_t_interval(alpha, stdev, count):
   return upper_bound
 
 
-def compute_bounds(step_times, confidence_level=CONFIDENCE_LEVEL):
+def compute_bounds(step_times, confidence_level):
   """Implements the formula described in e2e_testing/README.md"""
   n = len(step_times)
   assert n > 1, "Not enough step times to compute bounds"
@@ -229,8 +240,8 @@ def compute_bounds(step_times, confidence_level=CONFIDENCE_LEVEL):
   min_time = min(step_times)
   max_time = max(step_times)
 
-  stdev = np.std(step_times, ddof=1)
-  t_critical = calculate_confidence_t_interval(1 - confidence_level, stdev, n)
+  stdev = float(np.std(step_times, ddof=1))
+  t_critical = float(calculate_confidence_t_interval(1 - confidence_level, stdev, n))
 
   # Calculate the half-width H
   H = max(
@@ -246,51 +257,7 @@ def compute_bounds(step_times, confidence_level=CONFIDENCE_LEVEL):
   return lower_bound, upper_bound
 
 
-@click.command()
-@click.option(
-  "--bq-project",
-  default="tpu-pytorch",
-  help="BigQuery project ID",
-)
-@click.option(
-  "--bq-dataset",
-  default="benchmark_dataset_test",
-  help="BigQuery dataset name",
-)
-@click.option(
-  "--bq-table",
-  default="torchprime-e2e-tests",
-  help="BigQuery table name",
-)
-@click.option(
-  "--start-time",
-  default=parse_days_ago("5 days ago").strftime("%Y-%m-%d %H:%M:%S"),
-  help="Start time for the query in GoogleSQL datetime format (e.g., '2025-05-29 17:52:00 America/Los_Angeles'). "
-  "Can also accept common datetime formats which will be converted. "
-  "In particular, supports '[N] days ago' format, e.g., '2 days ago'. "
-  "Defaults to 5 days ago.",
-)
-@click.option(
-  "--end-time",
-  default=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-  help="End time for the query in GoogleSQL datetime format (e.g., '2025-06-01 20:00:00 America/Los_Angeles'). "
-  "Can also accept common datetime formats which will be converted. "
-  "In particular, supports '[N] days ago' format, e.g., '2 days ago'. "
-  "Defaults to the current time.",
-)
-@click.option(
-  "--limit",
-  default=1200,
-  type=int,
-  help="Maximum number of rows to retrieve",
-)
-@click.option(
-  "--output",
-  default="e2e_testing/step_time_bounds.yaml",
-  type=click.Path(),
-  help="Output YAML file path",
-)
-def main(bq_project, bq_dataset, bq_table, start_time, end_time, limit, output):
+def main():
   """
   Query BigQuery for E2E test results and compute step time bounds.
 
@@ -298,7 +265,70 @@ def main(bq_project, bq_dataset, bq_table, start_time, end_time, limit, output):
   computes statistical bounds for each benchmark's step times, and exports
   the results to a YAML file for use in GitHub Actions.
   """
+  parser = argparse.ArgumentParser(
+    description="Query BigQuery for E2E test results and compute step time bounds.",
+    formatter_class=argparse.RawTextHelpFormatter,
+  )
+  parser.add_argument(
+    "--bq-project",
+    default="tpu-pytorch",
+    help="BigQuery project ID",
+  )
+  parser.add_argument(
+    "--bq-dataset",
+    default="benchmark_dataset_test",
+    help="BigQuery dataset name",
+  )
+  parser.add_argument(
+    "--bq-table",
+    default="torchprime-e2e-tests",
+    help="BigQuery table name",
+  )
+  parser.add_argument(
+    "--start-time",
+    default=parse_days_ago("5 days ago").strftime("%Y-%m-%d %H:%M:%S"),
+    help="Start time for the query in GoogleSQL datetime format (e.g., '2025-05-29 17:52:00 America/Los_Angeles').\n"
+    "Can also accept common datetime formats which will be converted.\n"
+    "In particular, supports '[N] days ago' format, e.g., '2 days ago'.\n"
+    "Defaults to 5 days ago.",
+  )
+  parser.add_argument(
+    "--end-time",
+    default=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    help="End time for the query in GoogleSQL datetime format (e.g., '2025-06-01 20:00:00 America/Los_Angeles').\n"
+    "Can also accept common datetime formats which will be converted.\n"
+    "In particular, supports '[N] days ago' format, e.g., '2 days ago'.\n"
+    "Defaults to the current time.",
+  )
+  parser.add_argument(
+    "--limit",
+    default=1200,
+    type=int,
+    help="Maximum number of rows to retrieve",
+  )
+  parser.add_argument(
+    "--output",
+    default="e2e_testing/step_time_bounds.yaml",
+    type=str,
+    help="Output YAML file path",
+  )
+  parser.add_argument(
+    "--confidence_level",
+    default=99.0,
+    type=float,
+    help="Confidence level, default is 99%",
+  )
+  args = parser.parse_args()
+  bq_project = args.bq_project
+  bq_dataset = args.bq_dataset
+  bq_table = args.bq_table
+  start_time = args.start_time
+  end_time = args.end_time
+  limit = args.limit
+  output = args.output
+  confidence_level = args.confidence_level
   console = Console()
+  confidence_level = confidence_level / 100.0
 
   # Parse datetime inputs
   start_time = parse_datetime(start_time)
@@ -369,7 +399,11 @@ def main(bq_project, bq_dataset, bq_table, start_time, end_time, limit, output):
   benchmarks_data = {}
 
   for name, step_times in step_time_by_benchmark.items():
-    lower_bound, upper_bound = compute_bounds(step_times)
+    if len(step_times) <= 1:
+      console.print(f"\n[red]Not enough data to update bounds for: {name}[/red]\n")
+      continue
+    lower_bound, upper_bound = compute_bounds(step_times, confidence_level)
+    console.print(f"updating compute bounds for: {name}")
     average = sum(step_times) / len(step_times)
     interval_ms = (upper_bound - lower_bound) * 1000
 
@@ -392,6 +426,11 @@ def main(bq_project, bq_dataset, bq_table, start_time, end_time, limit, output):
         "average": round(average, 4),
         "sample_size": len(step_times),
       }
+      # Manually add target loss values for llama-3-8b-sft benchmark
+      # TODO (https://github.com/AI-Hypercomputer/torchprime/issues/348):
+      # preserve non-performance releated values in the file.
+      if job_id == "llama-3-8b-sft":
+        benchmarks_data[job_id].update({"target_loss": 0.4735, "loss_tolerance": 0.001})
 
   console.print(table)
 
@@ -406,7 +445,7 @@ def main(bq_project, bq_dataset, bq_table, start_time, end_time, limit, output):
         "metadata": {
           "query_start": start_time,
           "query_end": end_time,
-          "confidence_level": CONFIDENCE_LEVEL,
+          "confidence_level": confidence_level,
         },
       },
       f,

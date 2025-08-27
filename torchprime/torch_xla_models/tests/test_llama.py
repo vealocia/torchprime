@@ -1,16 +1,19 @@
 import copy
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 import torch
 import torch.nn as nn
-import torch.test
 import torch_xla
 from omegaconf import OmegaConf
 from transformers import AutoConfig
 from transformers import LlamaForCausalLM as HfLlamaForCausalLM
 
 from torchprime.torch_xla_models.model.llama import LlamaForCausalLM
+from torchprime.torch_xla_models.tests.test_utils import (
+  get_forward_and_backward_outputs,
+)
 
 
 @dataclass
@@ -24,8 +27,9 @@ def get_llama_3_8b() -> LlamaFixture:
   torch.manual_seed(42)
   torch_xla.manual_seed(42)
   vocab_size = 128
+  config_path = Path(__file__).parent / "hf_model_config" / "meta-llama-3-8b"
   config = AutoConfig.from_pretrained(
-    "meta-llama/Meta-Llama-3-8B",
+    config_path,
     head_dim=64,
     num_hidden_layers=1,
     num_attention_heads=8,
@@ -64,8 +68,9 @@ def get_llama_3_1_405b() -> LlamaFixture:
   torch.manual_seed(42)
   torch_xla.manual_seed(42)
   vocab_size = 256
+  config_path = Path(__file__).parent / "hf_model_config" / "meta-llama-3.1-405b"
   config = AutoConfig.from_pretrained(
-    "meta-llama/Meta-Llama-3.1-405B",
+    config_path,
     head_dim=64,
     num_hidden_layers=2,
     num_attention_heads=8,
@@ -134,7 +139,15 @@ def scan_decoders(mod):
   ids=["Llama 3.0 8B", "Llama 3.1 405B"],
 )
 @pytest.mark.parametrize("transform", [noop, scan_decoders])
-def test_forward_our_model_against_hf_model(fixture, transform):
+@pytest.mark.parametrize("input_size", [8, 128, 256])
+def test_forward_and_backward_our_model_against_hf_model(
+  fixture, transform, input_size
+):
+  """Compares the numerical consistency of our model and huggingface model.
+
+  Asserts that logits, loss, and gradients are nearly identical after a
+  full forward and backward pass.
+  """
   # Arrange
   fixture = fixture()
   device = torch_xla.device()
@@ -142,25 +155,36 @@ def test_forward_our_model_against_hf_model(fixture, transform):
   model_xla = transform(model_xla)
   hf_model_xla = copy.deepcopy(fixture.hf_model).to(device)
   torch_xla.sync()
-  input_sizes = [8, 128, 256]
-  for input_size in input_sizes:
-    input = torch.randint(fixture.vocab_size, ((2, input_size // 2))).to(device)
-    # Act
-    hf_output = hf_model_xla(input, labels=input, attention_mask=torch.ones_like(input))
-    llama_xla_logits, llama_xla_loss = model_xla(
-      input, labels=input, attention_mask=torch.ones_like(input)
-    )
-    torch_xla.sync()
-    # Assert
+  input_ids = torch.randint(fixture.vocab_size, ((2, input_size // 2))).to(device)
+  attention_mask = torch.ones_like(input_ids)
+
+  # Act
+  (hf_logits, hf_loss), hf_params = get_forward_and_backward_outputs(
+    hf_model_xla, input_ids=input_ids, labels=input_ids, attention_mask=attention_mask
+  )
+  (model_logits, model_loss), model_params = get_forward_and_backward_outputs(
+    model_xla, input_ids=input_ids, labels=input_ids, attention_mask=attention_mask
+  )
+
+  # Assert
+  torch.testing.assert_close(
+    hf_logits, model_logits, atol=1e-6, rtol=1e-9, msg="Logits are not equal"
+  )
+  torch.testing.assert_close(
+    hf_loss, model_loss, atol=1e-6, rtol=1e-9, msg="Losses are not equal"
+  )
+  for (name_hf, p_hf), (name_model, p_model) in zip(
+    hf_params, model_params, strict=True
+  ):
+    assert name_hf == name_model, f"Parameter name mismatch: {name_hf} vs {name_model}"
+    assert p_hf.grad is not None, f"Gradient for {name_hf} is None in hf_model"
+    assert p_model.grad is not None, f"Gradient for {name_model} is None in model"
     torch.testing.assert_close(
-      hf_output.logits,
-      llama_xla_logits,
+      p_hf.grad,
+      p_model.grad,
       atol=1e-6,
       rtol=1e-9,
-      msg="logits are not equal",
-    )
-    torch.testing.assert_close(
-      hf_output.loss, llama_xla_loss, atol=1e-6, rtol=1e-9, msg="loss is not equal"
+      msg=f"Gradients for '{name_hf}' differ",
     )
 
 
@@ -169,38 +193,70 @@ def test_forward_our_model_against_hf_model(fixture, transform):
   [get_llama_3_8b, get_llama_3_1_405b],
   ids=["Llama 3.0 8B", "Llama 3.1 405B"],
 )
-def test_forward_torch_xla_against_native(fixture):
+@pytest.mark.parametrize("input_size", [8])
+def test_forward_and_backward_torch_xla_against_native(fixture, input_size):
+  """Compares the numerical consistency of our native and XLA models.
+
+  Asserts that logits, loss, and gradients are nearly identical after a
+  full forward and backward pass on both backends.
+  """
   # Arrange
   fixture = fixture()
-  input_size = 8
-  device = torch.device("cpu")
-  input = torch.randint(fixture.vocab_size, ((2, input_size // 2)))
+  cpu_device = torch.device("cpu")
+  input_ids = torch.randint(
+    fixture.vocab_size, ((2, input_size // 2)), device=cpu_device
+  )
+  attention_mask = torch.ones_like(input_ids)
+
   # Act
-  llama_native_logits, llama_native_loss = fixture.model(
-    input, labels=input, attention_mask=torch.ones_like(input)
+  # --- Native CPU pass ---
+  model_native = fixture.model
+  (logits_native, loss_native), params_native = get_forward_and_backward_outputs(
+    model_native, input_ids=input_ids, labels=input_ids, attention_mask=attention_mask
   )
 
-  device = torch_xla.device()
-  input = input.to(device)
-  model_xla = copy.deepcopy(fixture.model).to(device)
-  torch_xla.sync()
+  # --- XLA pass ---
+  xla_device = torch_xla.device()
+  model_xla = copy.deepcopy(model_native).to(xla_device)
+  input_ids_xla = input_ids.to(xla_device)
+  attention_mask_xla = attention_mask.to(xla_device)
 
-  llama_xla_logits, llama_xla_loss = model_xla(
-    input, labels=input, attention_mask=torch.ones_like(input)
+  (logits_xla, loss_xla), params_xla = get_forward_and_backward_outputs(
+    model_xla,
+    input_ids=input_ids_xla,
+    labels=input_ids_xla,
+    attention_mask=attention_mask_xla,
   )
-  torch_xla.sync()
+
   # Assert
   torch.testing.assert_close(
-    llama_native_logits,
-    llama_xla_logits.to("cpu"),
+    logits_native,
+    logits_xla.to("cpu"),
     atol=1e-2,
     rtol=1e-6,
     msg="CPU run and XLA run logits are not equal",
   )
-  torch.testing.assert_close(
-    llama_native_loss,
-    llama_xla_loss.to("cpu"),
-    atol=1e-2,
-    rtol=1e-6,
-    msg="CPU run and XLA run loss is not equal",
-  )
+  if loss_native is not None and loss_xla is not None:
+    torch.testing.assert_close(
+      loss_native,
+      loss_xla.to("cpu"),
+      atol=1e-2,
+      rtol=1e-6,
+      msg="Native run and XLA run loss is not equal",
+    )
+
+  for (name_native, p_native), (name_xla, p_xla) in zip(
+    params_native, params_xla, strict=True
+  ):
+    assert name_native == name_xla
+    assert p_native.grad is not None, (
+      f"Gradient for {name_native} is None in native model"
+    )
+    assert p_xla.grad is not None, f"Gradient for {name_xla} is None in XLA model"
+    torch.testing.assert_close(
+      p_native.grad,
+      p_xla.grad.cpu(),
+      atol=1e-2,
+      rtol=1e-6,
+      msg=f"Gradients for '{name_native}' differ between Native and XLA",
+    )

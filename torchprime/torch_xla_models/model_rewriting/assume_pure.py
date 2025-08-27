@@ -1,3 +1,5 @@
+import logging
+
 import torch.nn as nn
 from omegaconf import DictConfig
 from torch_xla.experimental.assume_pure import PureModule
@@ -6,6 +8,8 @@ from torchprime.sharding.shard_model import wrap_module
 from torchprime.torch_xla_models.model_rewriting.rematerialization_utils import (
   get_classes_by_names,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def mark_pure_modules(model: nn.Module, config: DictConfig) -> nn.Module:
